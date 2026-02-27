@@ -254,6 +254,7 @@ func validateTargetURL(raw string) (*url.URL, error) {
 	}
 
 	parsed, err := url.Parse(trimmed)
+	log.Printf("parsing url: %s", parsed.Host)
 	if err != nil {
 		return nil, errors.New("invalid url")
 	}
