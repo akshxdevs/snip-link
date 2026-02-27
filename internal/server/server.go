@@ -9,12 +9,12 @@ import (
 
 	_ "github.com/joho/godotenv/autoload"
 
-	"url-shortner/internal/database"
+	redisdb "url-shortner/internal/redis"
 )
 
 type Server struct {
 	port int
-	db   database.Service
+	db   redisdb.Service
 }
 
 func NewServer() *http.Server {
@@ -27,7 +27,7 @@ func NewServer() *http.Server {
 
 	app := &Server{
 		port: port,
-		db:   database.New(),
+		db:   redisdb.New(),
 	}
 
 	return &http.Server{

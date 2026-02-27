@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"url-shortner/internal/database"
+	redisdb "url-shortner/internal/redis"
 )
 
 type mockDB struct {
-	store map[string]database.URLStats
+	store map[string]redisdb.URLStats
 }
 
 func newMockDB() *mockDB {
-	return &mockDB{store: make(map[string]database.URLStats)}
+	return &mockDB{store: make(map[string]redisdb.URLStats)}
 }
 
 func (m *mockDB) Health() map[string]string {
@@ -27,10 +27,10 @@ func (m *mockDB) Health() map[string]string {
 
 func (m *mockDB) CreateShortURL(_ context.Context, code, longURL string, ttl time.Duration) error {
 	if _, ok := m.store[code]; ok {
-		return database.ErrConflict
+		return redisdb.ErrConflict
 	}
 
-	stats := database.URLStats{
+	stats := redisdb.URLStats{
 		Code:      code,
 		LongURL:   longURL,
 		CreatedAt: time.Now().UTC(),
@@ -48,7 +48,7 @@ func (m *mockDB) CreateShortURL(_ context.Context, code, longURL string, ttl tim
 func (m *mockDB) GetLongURL(_ context.Context, code string) (string, error) {
 	stats, ok := m.store[code]
 	if !ok {
-		return "", database.ErrNotFound
+		return "", redisdb.ErrNotFound
 	}
 	return stats.LongURL, nil
 }
@@ -56,24 +56,24 @@ func (m *mockDB) GetLongURL(_ context.Context, code string) (string, error) {
 func (m *mockDB) IncrementVisits(_ context.Context, code string) (int64, error) {
 	stats, ok := m.store[code]
 	if !ok {
-		return 0, database.ErrNotFound
+		return 0, redisdb.ErrNotFound
 	}
 	stats.Visits++
 	m.store[code] = stats
 	return stats.Visits, nil
 }
 
-func (m *mockDB) GetStats(_ context.Context, code string) (database.URLStats, error) {
+func (m *mockDB) GetStats(_ context.Context, code string) (redisdb.URLStats, error) {
 	stats, ok := m.store[code]
 	if !ok {
-		return database.URLStats{}, database.ErrNotFound
+		return redisdb.URLStats{}, redisdb.ErrNotFound
 	}
 	return stats, nil
 }
 
 func (m *mockDB) DeleteShortURL(_ context.Context, code string) error {
 	if _, ok := m.store[code]; !ok {
-		return database.ErrNotFound
+		return redisdb.ErrNotFound
 	}
 	delete(m.store, code)
 	return nil
@@ -161,7 +161,7 @@ func TestURLStatsAndDelete(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, statsRes.Code)
 	}
 
-	var stats database.URLStats
+	var stats redisdb.URLStats
 	if err := json.Unmarshal(statsRes.Body.Bytes(), &stats); err != nil {
 		t.Fatalf("failed to parse stats response: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestURLStatsAndDelete(t *testing.T) {
 	}
 
 	_, err := db.GetLongURL(context.Background(), "stat123")
-	if !errors.Is(err, database.ErrNotFound) {
+	if !errors.Is(err, redisdb.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }

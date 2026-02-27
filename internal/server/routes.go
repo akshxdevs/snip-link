@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"url-shortner/internal/database"
+	redisdb "url-shortner/internal/redis"
 )
 
 const (
@@ -80,6 +80,10 @@ func (s *Server) rootHandler(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.db.Health())
+}
+
 func (s *Server) createShortURLHandler(w http.ResponseWriter, r *http.Request) {
 	type createShortURLRequest struct {
 		URL            string `json:"url"`
@@ -106,7 +110,7 @@ func (s *Server) createShortURLHandler(w http.ResponseWriter, r *http.Request) {
 
 	code, err := s.resolveShortCode(r.Context(), strings.TrimSpace(req.CustomAlias))
 	if err != nil {
-		if errors.Is(err, database.ErrConflict) {
+		if errors.Is(err, redisdb.ErrConflict) {
 			writeError(w, http.StatusConflict, "custom alias already exists")
 			return
 		}
@@ -129,7 +133,7 @@ func (s *Server) createShortURLHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("URL Expiration: %d", req.ExpirationDays)
 
 	if err := s.db.CreateShortURL(r.Context(), code, parsedURL.String(), ttl); err != nil {
-		if errors.Is(err, database.ErrConflict) {
+		if errors.Is(err, redisdb.ErrConflict) {
 			writeError(w, http.StatusConflict, "short code already exists")
 			return
 		}
@@ -156,7 +160,7 @@ func (s *Server) redirectHandler(w http.ResponseWriter, r *http.Request) {
 
 	target, err := s.db.GetLongURL(r.Context(), code)
 	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
+		if errors.Is(err, redisdb.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "short code not found")
 			return
 		}
@@ -180,7 +184,7 @@ func (s *Server) urlStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := s.db.GetStats(r.Context(), code)
 	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
+		if errors.Is(err, redisdb.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "short code not found")
 			return
 		}
@@ -199,7 +203,7 @@ func (s *Server) deleteURLHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.db.DeleteShortURL(r.Context(), code); err != nil {
-		if errors.Is(err, database.ErrNotFound) {
+		if errors.Is(err, redisdb.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "short code not found")
 			return
 		}
@@ -208,10 +212,6 @@ func (s *Server) deleteURLHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.db.Health())
 }
 
 func (s *Server) resolveShortCode(ctx context.Context, customAlias string) (string, error) {
@@ -224,7 +224,7 @@ func (s *Server) resolveShortCode(ctx context.Context, customAlias string) (stri
 			return "", err
 		}
 		if exists {
-			return "", database.ErrConflict
+			return "", redisdb.ErrConflict
 		}
 		return customAlias, nil
 	}
