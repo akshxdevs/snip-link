@@ -210,7 +210,6 @@ func (s *Server) deleteURLHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete short URL")
 		return
 	}
-
 	w.WriteHeader(http.StatusNoContent)
 }
 
