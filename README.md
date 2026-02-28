@@ -199,3 +199,6 @@ bun dev     # starts Next.js dev server
 - Single Redis instance only; no cluster or sentinel support.
 - Short code generation uses `crypto/rand` directly; NanoID dependency pulled in but not yet wired as primary generator.
 - No OpenAPI spec yet.
+
+## License
+Licensed under the [MIT License](LICENSE).
