@@ -43,7 +43,7 @@ type Service interface {
 }
 
 type service struct {
-	db *redis.Client
+	redis *redis.Client
 }
 
 var (
@@ -67,7 +67,7 @@ func New() Service {
 		DB:       num,
 	})
 
-	return &service{db: rdb}
+	return &service{redis: rdb}
 }
 
 func shortURLKey(code string) string {
@@ -78,7 +78,7 @@ func (s *service) CreateShortURL(ctx context.Context, code, longURL string, ttl 
 	key := shortURLKey(code)
 	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
 
-	created, err := s.db.HSetNX(ctx, key, "url", longURL).Result()
+	created, err := s.redis.HSetNX(ctx, key, "url", longURL).Result()
 	if err != nil {
 		return fmt.Errorf("create short url: %w", err)
 	}
@@ -86,7 +86,7 @@ func (s *service) CreateShortURL(ctx context.Context, code, longURL string, ttl 
 		return ErrConflict
 	}
 
-	if _, err := s.db.HSet(ctx, key,
+	if _, err := s.redis.HSet(ctx, key,
 		"created_at", createdAt,
 		"visits", 0,
 	).Result(); err != nil {
@@ -94,7 +94,7 @@ func (s *service) CreateShortURL(ctx context.Context, code, longURL string, ttl 
 	}
 
 	if ttl > 0 {
-		if err := s.db.Expire(ctx, key, ttl).Err(); err != nil {
+		if err := s.redis.Expire(ctx, key, ttl).Err(); err != nil {
 			return fmt.Errorf("set short url ttl: %w", err)
 		}
 	}
@@ -103,7 +103,7 @@ func (s *service) CreateShortURL(ctx context.Context, code, longURL string, ttl 
 }
 
 func (s *service) GetLongURL(ctx context.Context, code string) (string, error) {
-	url, err := s.db.HGet(ctx, shortURLKey(code), "url").Result()
+	url, err := s.redis.HGet(ctx, shortURLKey(code), "url").Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", ErrNotFound
@@ -123,7 +123,7 @@ func (s *service) IncrementVisits(ctx context.Context, code string) (int64, erro
 		return 0, ErrNotFound
 	}
 
-	visits, err := s.db.HIncrBy(ctx, shortURLKey(code), "visits", 1).Result()
+	visits, err := s.redis.HIncrBy(ctx, shortURLKey(code), "visits", 1).Result()
 	if err != nil {
 		return 0, fmt.Errorf("increment visits: %w", err)
 	}
@@ -132,7 +132,7 @@ func (s *service) IncrementVisits(ctx context.Context, code string) (int64, erro
 
 func (s *service) GetStats(ctx context.Context, code string) (URLStats, error) {
 	key := shortURLKey(code)
-	values, err := s.db.HGetAll(ctx, key).Result()
+	values, err := s.redis.HGetAll(ctx, key).Result()
 	if err != nil {
 		return URLStats{}, fmt.Errorf("get stats: %w", err)
 	}
@@ -150,7 +150,7 @@ func (s *service) GetStats(ctx context.Context, code string) (URLStats, error) {
 		return URLStats{}, fmt.Errorf("parse visits: %w", err)
 	}
 
-	ttl, err := s.db.TTL(ctx, key).Result()
+	ttl, err := s.redis.TTL(ctx, key).Result()
 	if err != nil {
 		return URLStats{}, fmt.Errorf("get ttl: %w", err)
 	}
@@ -171,7 +171,7 @@ func (s *service) GetStats(ctx context.Context, code string) (URLStats, error) {
 }
 
 func (s *service) DeleteShortURL(ctx context.Context, code string) error {
-	removed, err := s.db.Del(ctx, shortURLKey(code)).Result()
+	removed, err := s.redis.Del(ctx, shortURLKey(code)).Result()
 	if err != nil {
 		return fmt.Errorf("delete short url: %w", err)
 	}
@@ -183,7 +183,7 @@ func (s *service) DeleteShortURL(ctx context.Context, code string) error {
 }
 
 func (s *service) ShortCodeExists(ctx context.Context, code string) (bool, error) {
-	exists, err := s.db.Exists(ctx, shortURLKey(code)).Result()
+	exists, err := s.redis.Exists(ctx, shortURLKey(code)).Result()
 	if err != nil {
 		return false, fmt.Errorf("check short code exists: %w", err)
 	}
@@ -203,7 +203,7 @@ func (s *service) Health() map[string]string {
 
 // checkRedisHealth checks the health of the Redis server and adds the relevant statistics to the stats map.
 func (s *service) checkRedisHealth(ctx context.Context, stats map[string]string) map[string]string {
-	pong, err := s.db.Ping(ctx).Result()
+	pong, err := s.redis.Ping(ctx).Result()
 	if err != nil {
 		stats["redis_status"] = "down"
 		stats["redis_message"] = fmt.Sprintf("Redis ping failed: %v", err)
@@ -214,14 +214,14 @@ func (s *service) checkRedisHealth(ctx context.Context, stats map[string]string)
 	stats["redis_message"] = "It's healthy"
 	stats["redis_ping_response"] = pong
 
-	info, err := s.db.Info(ctx).Result()
+	info, err := s.redis.Info(ctx).Result()
 	if err != nil {
 		stats["redis_message"] = fmt.Sprintf("Failed to retrieve Redis info: %v", err)
 		return stats
 	}
 
 	redisInfo := parseRedisInfo(info)
-	poolStats := s.db.PoolStats()
+	poolStats := s.redis.PoolStats()
 
 	stats["redis_version"] = redisInfo["redis_version"]
 	stats["redis_mode"] = redisInfo["redis_mode"]
@@ -240,7 +240,7 @@ func (s *service) checkRedisHealth(ctx context.Context, stats map[string]string)
 	activeConns := uint64(math.Max(float64(poolStats.TotalConns-poolStats.IdleConns), 0))
 	stats["redis_active_connections"] = strconv.FormatUint(activeConns, 10)
 
-	poolSize := s.db.Options().PoolSize
+	poolSize := s.redis.Options().PoolSize
 	connectedClients, _ := strconv.Atoi(redisInfo["connected_clients"])
 	if poolSize > 0 {
 		poolSizePercentage := float64(connectedClients) / float64(poolSize) * 100
@@ -252,8 +252,8 @@ func (s *service) checkRedisHealth(ctx context.Context, stats map[string]string)
 
 // evaluateRedisStats evaluates the Redis server statistics and updates the stats map with relevant messages.
 func (s *service) evaluateRedisStats(redisInfo, stats map[string]string) map[string]string {
-	poolSize := s.db.Options().PoolSize
-	poolStats := s.db.PoolStats()
+	poolSize := s.redis.Options().PoolSize
+	poolStats := s.redis.PoolStats()
 	connectedClients, _ := strconv.Atoi(redisInfo["connected_clients"])
 	highConnectionThreshold := int(float64(poolSize) * 0.8)
 
